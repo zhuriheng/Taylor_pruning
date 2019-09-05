@@ -372,6 +372,10 @@ def main():
     global_iteration = 0
 
     args = parser.parse_args()
+    # add time for log path
+    date = time.strftime('%Y-%m-%d-%H-%M', time.localtime())
+    args.name = os.path.join(args.name, date)
+
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
