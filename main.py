@@ -381,12 +381,10 @@ def main():
 
     device = torch.device("cuda" if use_cuda else "cpu")
 
-    if args.model == "lenet3":
-        model = LeNet(dataset=args.dataset)
-    elif args.model == "vgg":
-        model = vgg11_bn(pretrained=True)
-    elif args.model == "resnet18":
-        model = PreActResNet18()
+    if args.model == "resnet18":
+        from models.resnet import resnet18
+        classes = 1000
+        model = resnet18(num_classes=classes)
     elif (args.model == "resnet50") or (args.model == "resnet50_noskip"):
         if args.dataset == "CIFAR10":
             model = PreActResNet50(dataset=args.dataset)
@@ -414,29 +412,18 @@ def main():
             else:
                 model = resnet101(num_classes=classes)
 
-    elif args.model == "resnet20":
-        if args.dataset == "CIFAR10":
-            NotImplementedError("resnet20 is not implemented in the current project")
-            # from models.resnet_cifar import resnet20
-            # model = resnet20()
     elif args.model == "resnet152":
         model = PreActResNet152()
-    elif args.model == "densenet201_imagenet":
-        from models.densenet_imagenet import DenseNet201
-        model = DenseNet201(gate_types=['output_bn'], pretrained=True)
-    elif args.model == "densenet121_imagenet":
-        from models.densenet_imagenet import DenseNet121
-        model = DenseNet121(gate_types=['output_bn'], pretrained=True)
     else:
         print(args.model, "model is not supported")
 
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
 
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                 std=[0.229, 0.224, 0.225])
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
 
-        train_dataset = datasets.ImageFolder(
+    train_dataset = datasets.ImageFolder(
         traindir,
         transforms.Compose([
             transforms.RandomResizedCrop(224),
@@ -445,36 +432,36 @@ def main():
             normalize,
         ]))
 
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+    else:
+        train_sampler = None
 
-        kwargs = {'num_workers': 16}
+    kwargs = {'num_workers': 16}
 
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+        sampler=train_sampler, pin_memory=True, **kwargs)
+
+    if args.use_test_as_train:
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-            sampler=train_sampler, pin_memory=True, **kwargs)
-
-        if args.use_test_as_train:
-            train_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=args.batch_size, shuffle=(train_sampler is None), **kwargs)
+        datasets.ImageFolder(valdir, transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=args.batch_size, shuffle=(train_sampler is None), **kwargs)
 
 
-        test_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=args.batch_size, shuffle=False, pin_memory=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(valdir, transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            normalize,
+        ])),
+        batch_size=args.batch_size, shuffle=False, pin_memory=True, **kwargs)
 
     ####end dataset preparation
 

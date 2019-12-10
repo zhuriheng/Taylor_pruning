@@ -6,6 +6,7 @@ source activate torch1.1py3.5
 
 cd ../../
 
+CUDA_VISIBLE_DEVICES=4,5,6,7 \
 nohup python -u main.py --name=runs/resnet50/resnet50_prune72 \
                 --dataset=Imagenet \
                 --data=/workspace/mnt/cache/ImageNet-pytorch \
