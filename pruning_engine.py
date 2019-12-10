@@ -300,7 +300,12 @@ class pytorch_pruning(object):
                                         mult = 23.0 if "resnet101" in self.model else mult
                                         mult = 6.0  if "resnet34" in self.model else mult
                                         mult = 6.0  if "resnet50" in self.model else mult
-
+                                    criteria_for_layer /= mult
+                                elif "resnet18" in self.model:
+                                    mult = 2.0
+                                    criteria_for_layer /= mult
+                                elif "darknet" in self.model:
+                                    mult = 2.0
                                     criteria_for_layer /= mult
 
             elif self.method == 23:
