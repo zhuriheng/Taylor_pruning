@@ -13,13 +13,14 @@ import torch.backends.cudnn as cudnn
 # ++++++for pruning
 import os, sys
 import time
+import torch
 from utils.utils import save_checkpoint, adjust_learning_rate, AverageMeter, accuracy, load_model_pytorch, dynamic_network_change_local, get_conv_sizes, connect_gates_with_parameters_for_flops
 from tensorboardX import SummaryWriter
 
 from logger import Logger
-from models.lenet import LeNet
-from models.vgg_bn import slimmingvgg as vgg11_bn
-from models.preact_resnet import *
+# from models.lenet import LeNet
+# from models.vgg_bn import slimmingvgg as vgg11_bn
+# from models.preact_resnet import *
 from pruning_engine import pytorch_pruning, PruningConfigReader, prepare_pruning_list
 
 from utils.group_lasso_optimizer import group_lasso_decay
@@ -177,7 +178,7 @@ def train(args, model, device, train_loader, optimizer, epoch, criterion, train_
     # print number of parameters left:
     if args.tensorboard:
         print('neurons_optimizer_left', neurons_left, global_iteration)
-
+        print('flops:', flops)
 
 def validate(args, test_loader, model, device, criterion, epoch, train_writer=None):
     """Perform validation on the validation set"""
@@ -188,23 +189,16 @@ def validate(args, test_loader, model, device, criterion, epoch, train_writer=No
 
     # switch to evaluate mode
     model.eval()
-
+    all_time = 0
     end = time.time()
     with torch.no_grad():
         for data_test in test_loader:
             data, target = data_test
-
             data = data.to(device)
-
+            start_time = time.time()
             output = model(data)
-
-            if args.get_inference_time:
-                iterations_get_inference_time = 100
-                start_get_inference_time = time.time()
-                for it in range(iterations_get_inference_time):
-                    output = model(data)
-                end_get_inference_time = time.time()
-                print("time taken for %d iterations, per-iteration is: "%(iterations_get_inference_time), (end_get_inference_time - start_get_inference_time)*1000.0/float(iterations_get_inference_time), "ms")
+            output_cpu = output.cpu()
+            all_time += (time.time() - start_time)
 
             target = target.to(device)
             loss = criterion(output, target)
@@ -217,7 +211,7 @@ def validate(args, test_loader, model, device, criterion, epoch, train_writer=No
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-
+    print('each_pic_inference_time:', all_time / 50000)
     print(' * Prec@1 {top1.avg:.3f}, Prec@5 {top5.avg:.3f}, Time {batch_time.sum:.5f}, Loss: {losses.avg:.3f}'.format(top1=top1, top5=top5,batch_time=batch_time, losses = losses) )
     # log to TensorBoard
     if train_writer is not None:
@@ -436,59 +430,8 @@ def main():
     else:
         print(args.model, "model is not supported")
 
-    # dataset loading section
-    if args.dataset == "MNIST":
-        kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-        train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=True, download=True,
-                           transform=transforms.Compose([
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.1307,), (0.3081,))
-                           ])),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.1307,), (0.3081,))
-                           ])),
-            batch_size=args.test_batch_size, shuffle=True, **kwargs)
-
-    elif args.dataset == "CIFAR10":
-        # Data loading code
-        normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
-                                         std=[x/255.0 for x in [63.0, 62.1, 66.7]])
-
-        if args.augment:
-            transform_train = transforms.Compose([
-                transforms.RandomCrop(32, padding=4),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-                ])
-        else:
-            transform_train = transforms.Compose([
-                transforms.ToTensor(),
-                normalize,
-                ])
-
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            normalize
-            ])
-
-        kwargs = {'num_workers': 8, 'pin_memory': True}
-        train_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('../data', train=True, download=True,
-                             transform=transform_train),
-            batch_size=args.batch_size, shuffle=True, drop_last=True, **kwargs)
-
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('../data', train=False, transform=transform_test),
-            batch_size=args.test_batch_size, shuffle=True, **kwargs)
-
-    elif args.dataset == "Imagenet":
-        traindir = os.path.join(args.data, 'train')
-        valdir = os.path.join(args.data, 'val')
+    traindir = os.path.join(args.data, 'train')
+    valdir = os.path.join(args.data, 'val')
 
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
@@ -607,7 +550,7 @@ def main():
         # helping optimizer to implement group lasso (with very small weight that doesn't affect training)
         # will be used to calculate number of remaining flops and parameters in the network
         group_wd_optimizer = group_lasso_decay(parameters_for_update, group_lasso_weight=args.group_wd_coeff, named_parameters=parameters_for_update_named, output_sizes=output_sizes)
-
+    print('group_wd_optimizer', group_wd_optimizer)
     cudnn.benchmark = True
 
     # define objective
